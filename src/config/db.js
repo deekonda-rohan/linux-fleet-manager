@@ -1,8 +1,13 @@
-
 const { Pool } = require("pg");
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
 });
 
 pool.on("error", (err) => {
@@ -14,4 +19,11 @@ async function testDatabaseConnection() {
   console.log("PostgreSQL connected:", result.rows[0].time);
 }
 
-module.exports = { pool, testDatabaseConnection };
+async function initializeDatabase() {
+  const schemaPath = path.join(__dirname, "../../database/schema.sql");
+  const schema = await fs.readFile(schemaPath, "utf8");
+  await pool.query(schema);
+  console.log("Database schema is ready");
+}
+
+module.exports = { pool, testDatabaseConnection, initializeDatabase };
