@@ -5,6 +5,12 @@ const {
   testDatabaseConnection,
   initializeDatabase,
 } = require("./config/db.js");
+const {
+  HEARTBEAT_TIMEOUT_SECONDS,
+  OFFLINE_CHECK_INTERVAL_SECONDS,
+} = require("./config/availability.js");
+const { createAvailabilityChecker } = require("./services/node-availability.js");
+const { createShutdownHandler } = require("./services/shutdown.js");
 
 const PORT = process.env.PORT || 3000;
 
@@ -13,30 +19,35 @@ async function startServer() {
     await testDatabaseConnection();
     await initializeDatabase();
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Fleet Manager running on port ${PORT}`);
+    const server = await new Promise((resolve, reject) => {
+      const listener = app.listen(PORT, "0.0.0.0");
+      listener.once("listening", () => resolve(listener));
+      listener.once("error", reject);
     });
+    console.log(`Fleet Manager running on port ${PORT}`);
 
-    setInterval(async () => {
-      try {
-        const result = await pool.query(`
-                        UPDATE nodes
-                        SET status = 'offline'
-                        WHERE status = 'online'
-                          AND last_seen_at < NOW() - INTERVAL '30 seconds'
-                        RETURNING id, name
-                      `);
+    const availabilityChecker = createAvailabilityChecker({
+      pool,
+      timeoutSeconds: HEARTBEAT_TIMEOUT_SECONDS,
+      intervalSeconds: OFFLINE_CHECK_INTERVAL_SECONDS,
+    });
+    availabilityChecker.start();
 
-        for (const node of result.rows) {
-          console.log(`Node ${node.name} is now offline`);
-        }
-      } catch (error) {
-        console.error("Availability check failed:", error.message);
-      }
-    }, 10000);
+    const shutdown = createShutdownHandler({
+      server,
+      pool,
+      stopAvailabilityChecker: () => availabilityChecker.stop(),
+    });
+    process.once("SIGINT", () => { void shutdown("SIGINT"); });
+    process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
   } catch (error) {
-    console.error("Failed to connect to PostgreSQL:", error.message);
-    process.exit(1);
+    console.error("Failed to start Fleet Manager:", error.message);
+    try {
+      await pool.end();
+    } catch (closeError) {
+      console.error("Failed to close PostgreSQL pool after startup error:", closeError.message);
+    }
+    process.exitCode = 1;
   }
 }
 
