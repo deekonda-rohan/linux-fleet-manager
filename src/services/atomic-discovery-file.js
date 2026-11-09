@@ -3,18 +3,25 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
 function validateOutputPath(outputPath) {
-  if (typeof outputPath !== "string" || outputPath.trim().length === 0) {
-    throw new Error("A discovery output path is required");
+  if (typeof outputPath !== "string" || !outputPath.trim()) {
+    throw new Error("Invalid output path");
   }
 
-  const resolvedPath = path.resolve(outputPath);
-  if (path.extname(resolvedPath).toLowerCase() !== ".json") {
-    throw new Error("Discovery output path must end in .json");
+  // Handle both Windows and Linux path separators.
+  const normalizedPath = outputPath.replace(/\\/g, "/");
+  const fileName = normalizedPath.split("/").pop();
+
+  // Protect Prometheus' default discovery file.
+  if (fileName.toLowerCase() === "nodes.json") {
+    throw new Error("Cannot overwrite protected nodes.json");
   }
-  if (path.basename(resolvedPath).toLowerCase() === "nodes.json") {
-    throw new Error("Refusing to write protected nodes.json; choose a dedicated discovery filename");
+
+  // Only allow JSON output files.
+  if (!fileName.toLowerCase().endsWith(".json")) {
+    throw new Error("Output path must end in .json");
   }
-  return resolvedPath;
+
+  return path.resolve(outputPath);
 }
 
 async function publishDiscoveryFile(outputPath, content, { overwrite = false } = {}) {
