@@ -5,6 +5,12 @@ const {
   hashNodeCredential,
 } = require("../services/node-credentials.js");
 const { recordNodeHeartbeat } = require("../services/node-availability.js");
+const { listNodes, findNodeById } = require("../repositories/node.repository.js");
+
+function isValidNodeId(value) {
+  if (typeof value !== "string" || !/^[1-9]\d{0,18}$/.test(value)) return false;
+  return BigInt(value) <= 9223372036854775807n;
+}
 
 const registerNode = async (req, res) => {
   const validation = validateNodePayload(req.body);
@@ -109,11 +115,11 @@ const revokeNodeCredential = async (req, res) => {
 
 const getNodes = async (_req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM nodes ORDER BY id ASC");
+    const nodes = await listNodes(pool);
 
     return res.status(200).json({
       success: true,
-      nodes: result.rows,
+      nodes,
     });
   } catch (error) {
     console.error("List nodes error:", error.message);
@@ -122,6 +128,25 @@ const getNodes = async (_req, res) => {
       success: false,
       message: "Failed to list nodes",
     });
+  }
+};
+
+const getNodeById = async (req, res) => {
+  const { id } = req.params;
+  if (!isValidNodeId(id)) {
+    return res.status(400).json({ success: false, message: "A valid node id is required" });
+  }
+
+  try {
+    const node = await findNodeById(pool, id);
+    if (!node) {
+      return res.status(404).json({ success: false, message: "Node not found" });
+    }
+
+    return res.status(200).json({ success: true, node });
+  } catch (error) {
+    console.error("Get node error:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to get node" });
   }
 };
 
@@ -159,6 +184,7 @@ const heartbeatNode = async (req, res) => {
 module.exports = {
   registerNode,
   getNodes,
+  getNodeById,
   heartbeatNode,
   rotateNodeCredential,
   revokeNodeCredential,

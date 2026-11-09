@@ -92,10 +92,37 @@ Implemented API routes:
 | `GET` | `/api/health` | Service health check |
 | `POST` | `/api/nodes` | Register a Linux node |
 | `GET` | `/api/nodes` | List registered nodes |
+| `GET` | `/api/nodes/:id` | Return one node's inventory and availability details |
 | `POST` | `/api/nodes/:id/heartbeat` | Record an authenticated node heartbeat |
 | `POST` | `/api/nodes/:id/credential/rotate` | Rotate the authenticated node credential |
 | `POST` | `/api/nodes/:id/credential/revoke` | Revoke the authenticated node credential |
 | `POST` | `/api/nodes/:id/commands` | Run an allowlisted diagnostic as an authenticated operator |
+| `GET` | `/api/nodes/commands/history` | List audited diagnostic outcomes with optional filtering and pagination |
+
+Node registration, listing, details, command history, and diagnostics require
+`Authorization: Bearer <FLEET_ADMIN_TOKEN>`. Configure `FLEET_ADMIN_TOKEN` with
+a randomly generated value of at least 32 characters. The node heartbeat and
+its credential rotation/revocation routes continue to use that node's own
+credential. If the operator token is not configured, operator APIs return
+`503`; missing or invalid tokens return `401`.
+
+Node details include `status` and `last_seen_at`, so a separate status endpoint
+is not required. Command history supports `node_id`, `limit` (default `25`, max
+`100`), and `offset` (default `0`). It returns operation, status, timestamps,
+exit code, and error code; it does not return the internal target address,
+credential data, or command output.
+
+Examples:
+
+```http
+GET /api/nodes/7
+Authorization: Bearer <FLEET_ADMIN_TOKEN>
+```
+
+```http
+GET /api/nodes/commands/history?node_id=7&limit=25&offset=0
+Authorization: Bearer <FLEET_ADMIN_TOKEN>
+```
 
 Node registration returns a one-time `credential` alongside the node details.
 The database stores only its SHA-256 hash; list responses never include the
@@ -128,7 +155,7 @@ than the timeout; polling means the offline transition can occur up to one poll
 interval later. A heartbeat arriving before detection restores the node to
 online.
 
-Node detail and metrics API endpoints are not implemented. Metrics are exposed by Node Exporter and queried through Prometheus/Grafana.
+Metrics are exposed by Node Exporter and queried through Prometheus/Grafana. The Fleet Manager does not yet proxy metric queries through its API.
 
 ### Backend setup
 

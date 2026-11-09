@@ -3,8 +3,77 @@ const {
   findCommandTarget,
   createCommandAudit,
   finishCommandAudit,
+  listCommandHistory,
 } = require("../repositories/remote-command.repository.js");
 const { APPROVED_OPERATIONS, runApprovedRemoteOperation } = require("../services/remote-operations.js");
+
+const DEFAULT_HISTORY_LIMIT = 25;
+const MAX_HISTORY_LIMIT = 100;
+const MAX_HISTORY_OFFSET = 2147483647;
+
+function parseHistoryQuery(query) {
+  let nodeId;
+  if (query.node_id !== undefined) {
+    if (typeof query.node_id !== "string"
+      || !/^[1-9]\d{0,18}$/.test(query.node_id)
+      || BigInt(query.node_id) > 9223372036854775807n) {
+      return { error: "node_id must be a valid positive node ID" };
+    }
+    nodeId = query.node_id;
+  }
+
+  let limit = DEFAULT_HISTORY_LIMIT;
+  if (query.limit !== undefined) {
+    if (typeof query.limit !== "string" || !/^\d+$/.test(query.limit)) {
+      return { error: `limit must be an integer from 1 to ${MAX_HISTORY_LIMIT}` };
+    }
+    limit = Number(query.limit);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_HISTORY_LIMIT) {
+      return { error: `limit must be an integer from 1 to ${MAX_HISTORY_LIMIT}` };
+    }
+  }
+
+  let offset = 0;
+  if (query.offset !== undefined) {
+    if (typeof query.offset !== "string" || !/^\d+$/.test(query.offset)) {
+      return { error: `offset must be an integer from 0 to ${MAX_HISTORY_OFFSET}` };
+    }
+    offset = Number(query.offset);
+    if (!Number.isSafeInteger(offset) || offset > MAX_HISTORY_OFFSET) {
+      return { error: `offset must be an integer from 0 to ${MAX_HISTORY_OFFSET}` };
+    }
+  }
+
+  const allowed = new Set(["node_id", "limit", "offset"]);
+  if (Object.keys(query).some((key) => !allowed.has(key))) {
+    return { error: "Only node_id, limit, and offset query parameters are supported" };
+  }
+
+  return { value: { nodeId, limit, offset } };
+}
+
+async function getCommandHistory(req, res) {
+  const parsed = parseHistoryQuery(req.query);
+  if (parsed.error) {
+    return res.status(400).json({ success: false, message: parsed.error });
+  }
+
+  try {
+    const result = await listCommandHistory(pool, parsed.value);
+    return res.status(200).json({
+      success: true,
+      history: result.records,
+      pagination: {
+        limit: parsed.value.limit,
+        offset: parsed.value.offset,
+        total: result.total,
+      },
+    });
+  } catch (error) {
+    console.error("List command history error:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to list command history" });
+  }
+}
 
 async function runRemoteOperation(req, res) {
   const nodeId = req.params.id;
@@ -84,4 +153,4 @@ async function runRemoteOperation(req, res) {
   }
 }
 
-module.exports = { runRemoteOperation };
+module.exports = { runRemoteOperation, getCommandHistory, parseHistoryQuery };

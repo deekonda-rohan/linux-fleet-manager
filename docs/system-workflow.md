@@ -10,7 +10,7 @@ Startup checks PostgreSQL and applies the additive migrations. Do not commit `.e
 
 ## Enroll a node and start heartbeats
 
-1. Register with `POST /api/nodes`, sending `name`, `hostname`, and `ip_address`.
+1. Register with `POST /api/nodes`, sending `name`, `hostname`, and `ip_address`, with the fleet operator bearer token.
 2. Save the returned credential securely. It is shown only once; PostgreSQL stores only its hash.
 3. On the Linux node, set `NODE_ID`, `NODE_TOKEN`, `API_BASE_URL`, and optionally `HEARTBEAT_INTERVAL_SECONDS`; run `bash scripts/heartbeat.sh`.
 4. Send `Authorization: Bearer <node-credential>` to `POST /api/nodes/:id/heartbeat` when testing manually.
@@ -19,7 +19,7 @@ The default heartbeat script interval is 10 seconds. The backend default offline
 
 ## Configure Prometheus endpoints
 
-Use `GET /api/nodes` to find the IDs. From a trusted machine with the backend's database settings available, run `scripts/provision-exporter-endpoint.js <node-id> <host-or-ip> <port>`. Then generate a separate JSON file with `scripts/generate-prometheus-discovery.js <output-path.json>`. The first run refuses to replace an existing file; use `--overwrite` only for the dedicated file you intend to refresh.
+Use `GET /api/nodes` with the fleet operator bearer token to find the IDs. `GET /api/nodes/:id` returns a node's full inventory and availability fields. From a trusted machine with the backend's database settings available, run `scripts/provision-exporter-endpoint.js <node-id> <host-or-ip> <port>`. Then generate a separate JSON file with `scripts/generate-prometheus-discovery.js <output-path.json>`. The first run refuses to replace an existing file; use `--overwrite` only for the dedicated file you intend to refresh.
 
 Prometheus must separately be configured to read that file. No WSL Prometheus configuration, active `nodes.json`, or Grafana dashboard is modified by these commands.
 
@@ -28,9 +28,11 @@ Prometheus must separately be configured to read that file. No WSL Prometheus co
 1. Install/configure OpenSSH on the backend host. Use a non-root account and ensure its key is available to the backend process.
 2. Pin each managed host key in that account's `known_hosts`; host-key checking is strict.
 3. Set `FLEET_SSH_USER` and a generated `FLEET_ADMIN_TOKEN` of at least 32 characters in the backend environment. Keep both out of source control.
-4. Send `POST /api/nodes/:id/commands` with the fleet admin bearer token and one operation body, for example `{"operation":"uptime"}`.
+4. Send `POST /api/nodes/:id/commands` with the fleet admin bearer token and one operation body, for example `{"operation":"uptime"}`. The same operator token is required for registration, listing, node details, and `GET /api/nodes/commands/history`.
 
 The only operations currently accepted are `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. There is no arbitrary-command or argument interface. Inspect `remote_command_audit` for status and exit code; command output is returned to the authorized caller and is not persisted.
+
+Command history can be read through `GET /api/nodes/commands/history?node_id=<id>&limit=25&offset=0`. The response excludes target addresses, credentials, and command output.
 
 ## Failure and recovery checks
 

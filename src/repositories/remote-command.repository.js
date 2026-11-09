@@ -28,4 +28,32 @@ async function finishCommandAudit(pool, { auditId, status, exitCode, errorCode }
   );
 }
 
-module.exports = { findCommandTarget, createCommandAudit, finishCommandAudit };
+async function listCommandHistory(pool, { nodeId, limit, offset }) {
+  const filter = nodeId === undefined ? "" : " WHERE node_id = $1";
+  const countValues = nodeId === undefined ? [] : [nodeId];
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::text AS total FROM remote_command_audit${filter}`,
+    countValues,
+  );
+
+  const values = nodeId === undefined ? [limit, offset] : [nodeId, limit, offset];
+  const limitPosition = values.length - 1;
+  const offsetPosition = values.length;
+  const result = await pool.query(
+    `SELECT id::text AS id, node_id::text AS node_id, node_name,
+            operation, status, requested_at, completed_at, exit_code, error_code
+     FROM remote_command_audit${filter}
+     ORDER BY requested_at DESC, id DESC
+     LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
+    values,
+  );
+
+  return { records: result.rows, total: Number(countResult.rows[0].total) };
+}
+
+module.exports = {
+  findCommandTarget,
+  createCommandAudit,
+  finishCommandAudit,
+  listCommandHistory,
+};
