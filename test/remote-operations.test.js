@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const {
   APPROVED_OPERATIONS,
@@ -9,6 +10,10 @@ const {
   isValidSshKeyPath,
   runApprovedRemoteOperation,
 } = require("../src/services/remote-operations.js");
+
+const node5KeyPath = path.resolve("test-keys", "node-5.pem");
+const node6KeyPath = path.resolve("test-keys", "node-6.pem");
+const sshKeyPath = path.resolve("fleet", "ssh", "fleet-manager-ed25519");
 
 test("the remote operation catalog contains only fixed diagnostic commands", () => {
   assert.deepEqual(Object.keys(APPROVED_OPERATIONS), [
@@ -37,22 +42,22 @@ test("SSH timeout configuration uses the safe default and rejects invalid or exc
 test("per-node SSH configuration maps each node to its own validated identity", () => {
   const { parseNodeSshConfig, getNodeSshConfig } = require("../src/config/ssh.js");
   const raw = JSON.stringify({
-    "5": { sshUser: "fleetdiag", sshKeyPath: "C:\\test-keys\\node-5.pem" },
-    "6": { sshUser: "fleetdiag", sshKeyPath: "C:\\test-keys\\node-6.pem" },
+    "5": { sshUser: "fleetdiag", sshKeyPath: node5KeyPath },
+    "6": { sshUser: "fleetdiag", sshKeyPath: node6KeyPath },
   });
   const parsed = parseNodeSshConfig(raw);
   assert.equal(parsed.error, null);
   assert.deepEqual(getNodeSshConfig("5", raw).config, {
-    sshUser: "fleetdiag", sshKeyPath: "C:\\test-keys\\node-5.pem",
+    sshUser: "fleetdiag", sshKeyPath: node5KeyPath,
   });
   assert.deepEqual(getNodeSshConfig("6", raw).config, {
-    sshUser: "fleetdiag", sshKeyPath: "C:\\test-keys\\node-6.pem",
+    sshUser: "fleetdiag", sshKeyPath: node6KeyPath,
   });
   assert.equal(getNodeSshConfig("7", raw).error, "SSH configuration is not available for this node");
   const args5 = buildSshArguments({ host: "10.170.237.204", ...getNodeSshConfig("5", raw).config, operation: "uptime" });
   const args6 = buildSshArguments({ host: "10.170.237.136", ...getNodeSshConfig("6", raw).config, operation: "uptime" });
-  assert.ok(args5.includes("IdentityFile=C:\\test-keys\\node-5.pem"));
-  assert.ok(args6.includes("IdentityFile=C:\\test-keys\\node-6.pem"));
+  assert.ok(args5.includes(`IdentityFile=${node5KeyPath}`));
+  assert.ok(args6.includes(`IdentityFile=${node6KeyPath}`));
 });
 
 test("per-node SSH configuration rejects malformed JSON and invalid entries", () => {
@@ -71,7 +76,7 @@ test("per-node SSH configuration rejects malformed JSON and invalid entries", ()
 });
 
 test("SSH arguments reject unapproved operations and unsafe hosts/users", () => {
-  const validKey = "C:\\fleet\\ssh\\fleet-manager-ed25519";
+  const validKey = sshKeyPath;
   assert.throws(() => buildSshArguments({ host: "node-1", sshUser: "fleet", sshKeyPath: validKey, operation: "rm -rf /" }), /not approved/);
   assert.throws(() => buildSshArguments({ host: "-oProxyCommand=evil", sshUser: "fleet", sshKeyPath: validKey, operation: "uptime" }), /invalid SSH host/);
   assert.throws(() => buildSshArguments({ host: "node-1", sshUser: "fleet;id", sshKeyPath: validKey, operation: "uptime" }), /SSH user/);
@@ -85,7 +90,7 @@ test("executes an approved command without a local shell", async () => {
   const result = await runApprovedRemoteOperation({
     host: "192.0.2.8",
     sshUser: "fleet",
-    sshKeyPath: "C:\\fleet\\ssh\\fleet-manager-ed25519",
+    sshKeyPath,
     operation: "uptime",
     spawnImpl(command, args, options) {
       invocation = { command, args, options };
@@ -105,7 +110,7 @@ test("executes an approved command without a local shell", async () => {
   assert.equal(invocation.command, "ssh");
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.args.includes("IdentitiesOnly=yes"), true);
-  assert.equal(invocation.args.includes("IdentityFile=C:\\fleet\\ssh\\fleet-manager-ed25519"), true);
+  assert.equal(invocation.args.includes(`IdentityFile=${sshKeyPath}`), true);
   assert.equal(invocation.args.includes("StrictHostKeyChecking=yes"), true);
   assert.equal(invocation.args.includes("BatchMode=yes"), true);
   assert.equal(invocation.args.includes("PasswordAuthentication=no"), true);
@@ -119,7 +124,7 @@ test("times out and terminates a hung SSH process", async () => {
   const result = await runApprovedRemoteOperation({
     host: "node-1.example.test",
     sshUser: "fleet",
-    sshKeyPath: "C:\\fleet\\ssh\\fleet-manager-ed25519",
+    sshKeyPath,
     operation: "kernel_info",
     timeoutMs: 5,
     spawnImpl() {
@@ -143,7 +148,7 @@ test("caps command output and terminates a process that exceeds the limit", asyn
   const result = await runApprovedRemoteOperation({
     host: "node-1.example.test",
     sshUser: "fleet",
-    sshKeyPath: "C:\\fleet\\ssh\\fleet-manager-ed25519",
+    sshKeyPath,
     operation: "memory_usage",
     maxOutputBytes: 4,
     spawnImpl() {
@@ -168,7 +173,7 @@ test("captures stdout and stderr under one combined output limit", async () => {
   const result = await runApprovedRemoteOperation({
     host: "node-1.example.test",
     sshUser: "fleet",
-    sshKeyPath: "C:\\fleet\\ssh\\fleet-manager-ed25519",
+    sshKeyPath,
     operation: "uptime",
     maxOutputBytes: 5,
     spawnImpl() {
