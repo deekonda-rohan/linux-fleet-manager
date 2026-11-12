@@ -2,10 +2,10 @@
   "name": "linux-fleet-manager",
   "version": "1.0.0",
   "description": "Distributed Linux node management, availability monitoring, and controlled SSH diagnostics",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
     "test": "node --test",
-    "dev" : "nodemon src/server.js",
+    "dev": "nodemon src/server.js",
     "start": "node src/server.js"
   },
   "keywords": [],

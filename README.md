@@ -1,318 +1,253 @@
-# Distributed Linux Fleet Management System
+# Distributed Linux Fleet Manager
 
-**A centralized platform for Linux node management, health monitoring, and controlled remote operations.**
-
-[![Node.js](https://img.shields.io/badge/Node.js-Runtime-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Express](https://img.shields.io/badge/Express-Backend-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Linux](https://img.shields.io/badge/Linux-System-FCC624?logo=linux&logoColor=black)](https://www.kernel.org/)
-[![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io/)
-[![Grafana](https://img.shields.io/badge/Grafana-Visualization-F46800?logo=grafana&logoColor=white)](https://grafana.com/)
-
-**Status:** Development prototype with node onboarding, authenticated heartbeats, availability tracking, discovery generation, and allowlisted SSH diagnostics.
+A Node.js and Express service for registering Linux servers, tracking authenticated heartbeats, publishing Prometheus discovery targets, and running a small allowlist of audited SSH diagnostics. The demonstration deployment uses a Windows backend, PostgreSQL, two AWS EC2 Ubuntu nodes connected over ZeroTier, and Prometheus and Grafana running in WSL.
 
 ## Overview
 
-The Distributed Linux Fleet Management System is a platform designed to centralize the onboarding, monitoring, and administration of Linux machines.
+Operating a small Linux fleet requires a consistent inventory, a way to distinguish stale nodes from healthy ones, usable system metrics, and controlled access for diagnostics. This project brings those workflows together through a backend API and supporting Linux scripts.
 
-The system uses a backend service to maintain node inventory, process authenticated heartbeats, detect availability failures, and run a small allowlist of read-only SSH diagnostics. Prometheus and Node Exporter collect system metrics, while Grafana visualizes them. Prometheus/Grafana runtime configuration is maintained in the WSL environment and is not provisioned by this repository.
+The backend manages node inventory and heartbeat state in PostgreSQL. It can publish configured Node Exporter endpoints as Prometheus file-based service discovery JSON. Prometheus scrapes the exporters, while Grafana queries Prometheus to display metrics. A separate authenticated API path can run fixed diagnostic operations over SSH and records operation outcomes in an audit table.
 
-The project emphasizes **reliability, observability, Linux systems engineering, and secure backend design**.
+AWS instances, ZeroTier membership, Prometheus configuration, and Grafana dashboards are prepared and administered separately. The application does not create cloud instances or configure the private network.
 
-## Core Capabilities
+## Objectives
 
-- **Node Management:** Register and maintain an inventory of Linux machines.
-- **Heartbeat Monitoring:** Track node liveness through periodic communication with the Fleet Manager.
-- **Failure Detection:** Identify stale heartbeats and transition unavailable nodes to an offline state.
-- **Infrastructure Monitoring:** Collect CPU, memory, and disk metrics using Prometheus and Node Exporter.
-- **Metrics Visualization:** Analyze infrastructure health and historical trends through Grafana.
-- **Controlled Remote Execution:** Run seven fixed, read-only diagnostics over SSH after separate operator-token authentication: `uptime`, `disk_usage`, `memory_usage`, `kernel_info`, `disk_usage_all`, `memory_usage_mb`, and `node_exporter_status`.
-- **Auditability:** Record operation, target, timestamps, status, and exit code without storing tokens or command output.
+- Maintain a central inventory of registered Linux nodes.
+- Authenticate node heartbeats and mark stale nodes offline.
+- Discover configured Node Exporter endpoints without maintaining a static target list by hand.
+- Visualize host metrics through Prometheus and Grafana.
+- Provide restricted, auditable SSH diagnostics without accepting arbitrary commands.
 
-> This is a development prototype. Live SSH and WSL monitoring integration still depend on host-specific configuration.
+## Implemented features
 
-### Architecture Components
+- Operator-authenticated node registration, listing, and detail lookup.
+- Per-node bearer credentials for heartbeat, credential rotation, and revocation; the database stores credential hashes.
+- Configurable heartbeat expiry and periodic offline detection.
+- Trusted local tooling to provision exporter endpoints.
+- Optional periodic, atomic Prometheus file-SD publication from PostgreSQL; nodes without configured endpoints are omitted.
+- Seven fixed SSH operations: `uptime`, `disk_usage`, `memory_usage`, `kernel_info`, `disk_usage_all`, `memory_usage_mb`, and `node_exporter_status`.
+- Separate fleet-operator authentication for management and remote-diagnostic routes.
+- Remote-operation audit history with status, timestamps, exit code, and error code; command output is not persisted.
+- Automated tests using Node.js's built-in test runner.
 
-| Component | Responsibility |
-|---|---|
-| Node.js and Express | REST APIs, node lifecycle, and availability logic |
-| PostgreSQL | Node inventory, heartbeat state, exporter endpoints, and remote-operation audit records |
-| Bash | Lightweight heartbeat automation |
-| Node Exporter | Linux system metrics endpoint |
-| Prometheus | Metrics collection and time-series storage |
-| Grafana | Metrics visualization |
-| SSH | Restricted remote administration |
+## System Architecture and Workflow
 
-## Technology Stack
+### Diagram 1 — System Architecture
 
-| Layer | Technologies |
-|---|---|
-| Backend | Node.js, Express.js |
-| Database | PostgreSQL |
-| Automation | Bash, curl |
-| Operating system | Ubuntu, Linux |
-| Monitoring | Prometheus, Node Exporter |
-| Visualization | Grafana |
-| API testing | Postman |
-| Development environment | Windows Subsystem for Linux (WSL), Git |
+```mermaid
+flowchart LR
+  subgraph Windows[Windows laptop]
+    API[Node.js / Express Fleet Manager]
+    DB[(PostgreSQL)]
+    SD[Backend-generated Prometheus file-SD JSON]
+    API <-->|SQL database access| DB
+    API -->|write dynamic targets| SD
+  end
 
-## Operational Workflow
+  subgraph Private[ZeroTier private network]
+    subgraph AWS1[AWS EC2 Ubuntu node 1]
+      HB1[Heartbeat agent]
+      NE1[Node Exporter]
+      SSH1[Restricted SSH command wrapper]
+    end
+    subgraph AWS2[AWS EC2 Ubuntu node 2]
+      HB2[Heartbeat agent]
+      NE2[Node Exporter]
+      SSH2[Restricted SSH command wrapper]
+    end
+  end
 
-### 1. Node Registration
+  subgraph WSL[WSL monitoring environment]
+    Prom[Prometheus]
+    Grafana[Grafana]
+    Prom -->|Prometheus queries| Grafana
+  end
 
-An administrator registers a node through the Fleet Manager. The backend validates the supplied information and persists the node's inventory details in PostgreSQL.
-
-### 2. Heartbeat Processing
-
-A Linux-side Bash script periodically sends an HTTP request to the backend. The Fleet Manager records the latest successful heartbeat timestamp.
-
-### 3. Availability Management
-
-The backend evaluates heartbeat freshness against a configurable timeout. Nodes that exceed the threshold are marked offline. Subsequent valid heartbeats allow their status to recover.
-
-### 4. Metrics Collection
-
-Node Exporter exposes operating-system metrics, which Prometheus collects at configured intervals.
-
-### 5. Observability
-
-Grafana visualizes metrics stored in Prometheus, enabling inspection of resource utilization and historical trends.
-
-### 6. Remote Administration
-
-An operator submits one of the fixed diagnostic operation names. The API requires a separate fleet-operator bearer token, resolves the node target from PostgreSQL, and invokes OpenSSH with strict host-key checking, batch mode, a timeout, and an output limit. Arbitrary command text and arguments are rejected. Each attempt is recorded in `remote_command_audit`.
-
-
-## API Reference
-
-Implemented API routes:
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Service health check |
-| `POST` | `/api/nodes` | Register a Linux node |
-| `GET` | `/api/nodes` | List registered nodes |
-| `GET` | `/api/nodes/:id` | Return one node's inventory and availability details |
-| `POST` | `/api/nodes/:id/heartbeat` | Record an authenticated node heartbeat |
-| `POST` | `/api/nodes/:id/credential/rotate` | Rotate the authenticated node credential |
-| `POST` | `/api/nodes/:id/credential/revoke` | Revoke the authenticated node credential |
-| `POST` | `/api/nodes/:id/commands` | Run an allowlisted diagnostic as an authenticated operator |
-| `GET` | `/api/nodes/commands/history` | List audited diagnostic outcomes with optional filtering and pagination |
-
-Node registration, listing, details, command history, and diagnostics require
-`Authorization: Bearer <FLEET_ADMIN_TOKEN>`. Configure `FLEET_ADMIN_TOKEN` with
-a randomly generated value of at least 32 characters. The node heartbeat and
-its credential rotation/revocation routes continue to use that node's own
-credential. If the operator token is not configured, operator APIs return
-`503`; missing or invalid tokens return `401`.
-
-Node details include `status` and `last_seen_at`, so a separate status endpoint
-is not required. Command history supports `node_id`, `limit` (default `25`, max
-`100`), and `offset` (default `0`). It returns operation, status, timestamps,
-exit code, and error code; it does not return the internal target address,
-credential data, or command output.
-
-Examples:
-
-```http
-GET /api/nodes/7
-Authorization: Bearer <FLEET_ADMIN_TOKEN>
+  HB1 -->|HTTP heartbeat API| API
+  HB2 -->|HTTP heartbeat API| API
+  API -->|SSH diagnostics over pinned host keys| SSH1
+  API -->|SSH diagnostics over pinned host keys| SSH2
+  NE1 -->|metrics scrape| Prom
+  NE2 -->|metrics scrape| Prom
+  SD -->|file_sd_configs| Prom
 ```
 
-```http
-GET /api/nodes/commands/history?node_id=7&limit=25&offset=0
-Authorization: Bearer <FLEET_ADMIN_TOKEN>
+The required ZeroTier clients, memberships, and network rules are configured by an operator. The Windows backend generates the discovery file; Prometheus's own configuration must separately point to that file. WSL Prometheus must be able to read it and reach the node exporters.
+
+### Diagram 2 — End-to-End System Workflow
+
+```mermaid
+flowchart TD
+  Operator[Operator] -->|POST /api/nodes with operator auth| Validate{Valid request and operator auth?}
+  Validate -->|No| RegError[Reject registration]
+  Validate -->|Yes| Store[(PostgreSQL node inventory)]
+  Store -->|registered node| Credential[Return node ID and one-time heartbeat credential]
+  Credential --> Agent[Node heartbeat agent]
+  Agent -->|periodic authenticated heartbeat| Auth{Credential valid for this node?}
+  Auth -->|No| AuthError[Reject heartbeat]
+  Auth -->|Yes| Online[Update last_seen_at and status online]
+  Online --> Checker[Periodic availability checker]
+  Checker -->|heartbeat older than timeout| Offline[Mark node offline]
+  Checker -->|heartbeat current| Online
+
+  Store -->|configured exporter endpoints| Discovery[Backend builds file-SD JSON]
+  Discovery -->|shared file path| Prom[Prometheus reads file_sd targets]
+  Prom -->|scrapes Node Exporter| Scrape{Scrape succeeds?}
+  Scrape -->|Yes| Metrics[(Prometheus time series)]
+  Scrape -->|No| ScrapeDown[Target scrape fails]
+  ScrapeDown --> Metrics[(Prometheus time series<br/>up is 0)]
+  Metrics --> Grafana[Grafana queries metrics and renders dashboard]
+  ScrapeDown --> Grafana
+
+  Operator -->|POST /api/nodes/:id/commands| CommandAuth{Operator authenticated?}
+  CommandAuth -->|No| CommandAuthError[Reject with 401 or 503]
+  CommandAuth -->|Yes| Operation{Operation in fixed allowlist?}
+  Operation -->|No| OperationError[Reject with 400]
+  Operation -->|Yes| Resolve[Resolve node address and per-node SSH mapping]
+  Resolve --> SSHConfig{SSH mapping available?}
+  SSHConfig -->|No| SSHConfigError[Reject with 503]
+  SSHConfig -->|Yes| Execute[Run fixed SSH command with timeout and output cap]
+  Execute --> Reachable{Node reachable and command completes?}
+  Reachable -->|No| Failed[Node offline or unreachable; return failure or timeout]
+  Reachable -->|Yes| Succeeded[Return diagnostic result]
+  Failed --> Audit[Create/update command audit record]
+  Succeeded --> Audit
+  Audit --> History[Operator reads command history]
 ```
 
-Node registration returns a one-time `credential` alongside the node details.
-The database stores only its SHA-256 hash; list responses never include the
-credential or its hash. Save the credential securely when enrolling the node.
-For existing nodes, an administrator with local database access can provision
-one once with `node scripts/issue-node-credential.js <node-id>`. Use the
-`--rotate` option to replace an existing or revoked credential; the previous
-credential becomes invalid immediately. The command prints the new credential
-once to its local terminal.
+Remote-operation requests are authenticated before execution. Unapproved operation names are rejected before SSH or audit-row creation. For approved operations, the audit row is created before SSH and updated with its result. A missing or invalid per-node SSH mapping fails closed. An unreachable host or failed command is returned as a failed operation and recorded; a timeout is recorded as `timed_out`. The controller does not use heartbeat status as an SSH precondition.
 
-Credential rotation and revocation endpoints require the node's current
-`Authorization: Bearer <credential>` header and can only affect that same node.
-Registration and administrative local provisioning are the initial credential
-issuance paths. A revoked credential cannot authenticate; local provisioning
-with `--rotate` can issue a replacement.
+## End-to-end workflow
 
-The heartbeat script requires `NODE_ID`, `NODE_TOKEN`, and `API_BASE_URL` (for
-example, `API_BASE_URL=http://localhost:5000`). `HEARTBEAT_INTERVAL_SECONDS` is
-optional and defaults to `10`. Pass the token in the process environment, not
-as a command-line argument. Bearer credentials must be sent over HTTPS or a
-trusted private network/tunnel; plain HTTP does not encrypt the Authorization
-header. Node registration requires a non-empty name (up to 100 characters), a
-valid DNS hostname, and a valid IPv4 or IPv6 address.
+1. An operator registers a node through the Fleet Manager API. The backend validates its name, hostname, and IP address, then stores inventory in PostgreSQL.
+2. Registration returns a credential once; only its hash is stored. The matching Linux heartbeat agent sends it in the `Authorization` header on a periodic heartbeat request.
+3. A valid heartbeat updates `last_seen_at` and sets the node status to `online`. The availability checker marks an online node offline after its last heartbeat exceeds the configured timeout. A later valid heartbeat brings it online again.
+4. A trusted operator provisions a Node Exporter address and port for each node. When discovery output is configured, the backend reads endpoint data from PostgreSQL and atomically refreshes a dedicated file-SD JSON file.
+5. Separately configured Prometheus reads that file and scrapes Node Exporter on the nodes. The backend does not edit or reload Prometheus configuration.
+6. Grafana queries Prometheus and displays the selected dashboards. The dashboard assets are managed outside this repository.
+7. An operator can request an allowlisted SSH diagnostic. The backend resolves the registered node address and that node's SSH mapping, runs the fixed operation, and stores audit metadata and outcome for history lookup.
 
-The backend reads `HEARTBEAT_TIMEOUT_SECONDS` (default `30`) and
-`OFFLINE_CHECK_INTERVAL_SECONDS` (default `10`). Both must be positive integers.
-The heartbeat interval should be shorter than the timeout to tolerate missed
-requests. A node is considered stale only after its last heartbeat is older
-than the timeout; polling means the offline transition can occur up to one poll
-interval later. A heartbeat arriving before detection restores the node to
-online.
+Heartbeat monitoring and exporter availability are separate signals. Grafana or Prometheus's `up` metric indicates whether Prometheus successfully scraped a Node Exporter endpoint; it does **not** represent Fleet Manager heartbeat status. Heartbeat state is available through the Fleet Manager node detail API.
 
-Metrics are exposed by Node Exporter and queried through Prometheus/Grafana. The Fleet Manager does not yet proxy metric queries through its API.
+## Monitoring dashboard panels
 
-### Backend setup
+This repository does not include Grafana dashboard JSON, so panel names, layout, and filters depend on the dashboard separately provisioned for the environment. Typical Node Exporter panels show:
 
-Use Node.js 20 or newer and PostgreSQL. Copy `.env.example` to `.env`, fill in the database connection values locally, then run:
+| Panel | What it measures |
+|---|---|
+| CPU utilization | Approximate share of CPU time not spent idle. |
+| Memory utilization | Used memory relative to total memory, commonly based on `node_memory_MemAvailable_bytes` and `node_memory_MemTotal_bytes`. |
+| Disk utilization | Used space by filesystem; the dashboard may filter temporary and pseudo filesystems. |
+| Uptime | Time elapsed since the node boot timestamp. |
+| Node Exporter availability | Prometheus scrape success for the exporter, commonly the `up` metric. This is not heartbeat status. |
+
+## Security architecture
+
+- Node credentials and the fleet-operator token are separate authentication mechanisms.
+- Node credentials are random per-node values; PostgreSQL stores only SHA-256 hashes. Heartbeat credentials apply to their matching node.
+- Operator-protected routes use `FLEET_ADMIN_TOKEN`; the token is checked with a timing-safe hash comparison. Configure a high-entropy value of at least 32 characters.
+- SQL values are passed as query parameters.
+- SSH uses a per-node key mapping, strict host-key checking, batch mode, password authentication disabled, and no local shell invocation.
+- Remote operation names map to fixed commands. The Ubuntu forced-command wrapper accepts exact approved commands and does not evaluate arbitrary shell input.
+- SSH execution has a configurable timeout and a combined output capture limit. Audit history stores operation metadata and outcome, not command output or credentials.
+- Keep `.env`, private keys, and real infrastructure addresses out of source control and public documentation. Use HTTPS or a trusted private network for bearer-authenticated heartbeat traffic.
+
+## Technology stack
+
+| Area | Technology |
+|---|---|
+| Backend | Node.js 20+, Express.js |
+| Database | PostgreSQL with SQL schema and additive migrations |
+| Linux automation | Bash and curl heartbeat agent |
+| Private connectivity | ZeroTier, configured separately |
+| Host metrics | Prometheus Node Exporter |
+| Metrics collection | Prometheus in WSL |
+| Visualization | Grafana in WSL |
+| Remote diagnostics | OpenSSH with a restricted Ubuntu wrapper |
+| Tests | Node.js `node:test` and `node:assert/strict` |
+
+## Project structure
+
+```text
+database/                  Base SQL schema and ordered migrations
+docs/                      Architecture, workflow, codebase, setup, and demo guides
+scripts/                   Heartbeat, endpoint/discovery tools, credential utility, SSH wrapper
+src/
+  config/                  Database, availability, SSH, and discovery configuration
+  controllers/             API request handlers
+  middleware/              Node and operator authentication
+  repositories/            PostgreSQL queries
+  routes/                  Express route definitions
+  services/                Validation, credentials, availability, SSH, discovery, shutdown
+test/                      Automated tests by behavior area
+.github/workflows/         CI workflow for dependency install and test run
+```
+
+## Prerequisites
+
+- Windows backend host with Node.js 20 or newer, npm, and OpenSSH client if diagnostics are enabled.
+- PostgreSQL reachable from the backend host.
+- Two AWS EC2 Ubuntu nodes provisioned separately by an authorized operator.
+- ZeroTier clients installed and network members authorized separately.
+- WSL with Prometheus and Grafana installed and configured separately.
+- Node Exporter on each Ubuntu node; `curl` for the heartbeat script.
+- A shared path that Windows can write and WSL Prometheus can read, if dynamic file discovery is enabled.
+
+## Quick setup
+
+Detailed, beginner-oriented procedures are in the [Setup Guide](docs/setup-guide.md). At a high level:
+
+1. Create a PostgreSQL database and a role that can apply the application's schema and migrations.
+2. In Windows PowerShell at the repository root, copy `.env.example` to `.env` and set local database values, backend port, operator authentication, and any optional SSH/discovery settings. Never commit `.env`.
+3. Install dependencies and start the backend:
+
+   ```powershell
+   npm ci
+   npm start
+   ```
+
+   Startup checks PostgreSQL and applies `database/schema.sql` and all migrations. The code default port is `3000`; the checked-in template selects `5000`.
+4. Join and authorize the Windows backend and two Ubuntu nodes on the approved ZeroTier network. This is an operator task, not application automation.
+5. Register nodes, deliver each node's one-time heartbeat credential securely, and run `scripts/heartbeat.sh` on the matching node.
+6. Provision each Node Exporter endpoint with `scripts/provision-exporter-endpoint.js`. Configure the backend's dedicated discovery output file and Prometheus `file_sd_configs` separately.
+7. Start Prometheus and Grafana, configure Grafana's Prometheus data source, and import or build a dashboard.
+
+## Tests
+
+Run the full test suite from the repository root:
 
 ```sh
-npm ci
 npm test
-npm start
 ```
 
-Startup checks the database and applies the idempotent migrations. The backend listens on `PORT` (default `3000`; this project is commonly run on `5000`). Do not commit `.env`.
+The suite uses Node's built-in test runner. `.github/workflows/test.yml` runs `npm ci` and `npm test` with Node.js 20. No test count is stated here because it can change as tests are updated.
 
-### Controlled remote diagnostics
+## API overview
 
-Set `FLEET_ADMIN_TOKEN` to a privately generated, high-entropy base64url token of at least 32 characters. Configure `FLEET_SSH_NODES` as a JSON object keyed by registered node ID; each entry must contain only `sshUser` and an absolute backend-local `sshKeyPath`. There is no global-key fallback: a missing or invalid mapping disables execution for that request. Keep keys outside the repository and restrict each key file ACL to the backend process account and SYSTEM. For example, for this AWS inventory:
+Routes are defined in `src/routes/healthcheck.route.js` and `src/routes/node.route.js`.
 
-```dotenv
-FLEET_SSH_NODES={"5":{"sshUser":"fleetdiag","sshKeyPath":"C:\\path\\to\\node-5-key.pem"},"6":{"sshUser":"fleetdiag","sshKeyPath":"C:\\path\\to\\node-6-key.pem"}}
-```
+| Method | Endpoint | Authentication | Description |
+|---|---|---|---|
+| `GET` | `/api/health` | None | Health response |
+| `POST` | `/api/nodes` | Fleet operator | Register a node and issue its credential once |
+| `GET` | `/api/nodes` | Fleet operator | List registered nodes |
+| `GET` | `/api/nodes/:id` | Fleet operator | Get node inventory and heartbeat state |
+| `POST` | `/api/nodes/:id/heartbeat` | That node's credential | Record a heartbeat |
+| `POST` | `/api/nodes/:id/credential/rotate` | That node's current credential | Rotate that node's credential |
+| `POST` | `/api/nodes/:id/credential/revoke` | That node's current credential | Revoke that node's credential |
+| `POST` | `/api/nodes/:id/commands` | Fleet operator | Run one allowlisted remote diagnostic |
+| `GET` | `/api/nodes/commands/history` | Fleet operator | List command audit history |
 
-OpenSSH must be installed on the backend host, and each node host key must already be independently verified and trusted. The client explicitly sets `IdentityFile`, `IdentitiesOnly=yes`, `BatchMode=yes`, `StrictHostKeyChecking=yes`, and `PasswordAuthentication=no`.
+Command history accepts optional `node_id`, `limit` (default `25`, maximum `100`), and `offset` query parameters. It returns operation and outcome metadata, not target addresses, credentials, or command output. When operator authentication is not configured, operator-protected routes are unavailable; missing or invalid operator credentials are rejected.
 
-Generate a token locally when configuring the environment:
+## Documentation
 
-```sh
-node -p "require('node:crypto').randomBytes(32).toString('base64url')"
-```
+- [Architecture](docs/architecture.md) — components, trust boundaries, data model, and monitoring boundary.
+- [Codebase guide](docs/codebase-guide.md) — source organization, startup path, request flow, and reading order.
+- [System workflow and operator guide](docs/system-workflow.md) — node enrollment, heartbeats, discovery, and SSH operations.
+- [Setup guide](docs/setup-guide.md) — end-to-end Windows, PostgreSQL, ZeroTier, WSL, Grafana, and Ubuntu setup.
+- [Demo guide](docs/demo-guide.md) — reviewer walkthrough, verification, failure/recovery demonstration, and shutdown.
 
-Send `POST /api/nodes/:id/commands` with `Authorization: Bearer <FLEET_ADMIN_TOKEN>` and a JSON body such as `{"operation":"uptime"}`. Existing operations are preserved: `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. Additional operations are `disk_usage_all` (`df -h`), `memory_usage_mb` (`free -m`), and `node_exporter_status` (`systemctl status node_exporter.service --no-pager`). Node credentials do not authorize remote operations. A missing operator token disables this route with `503`.
+## Live demonstration
 
-The audit table stores operation metadata and result status, not command output. The synchronous API request times out after 10 seconds and captures stdout and stderr under a combined 8 KiB limit. The host-side `scripts/fleet-command-wrapper.sh` accepts only exact approved command strings and executes fixed absolute executable paths. Install it root-owned and use an authorized-key entry with `restrict,command="/usr/local/sbin/fleet-command-wrapper"`; the wrapper rejects all other requests without evaluating them in a shell.
-
-#### SSH host setup
-
-On Windows, create a dedicated key pair for this integration and grant read access only to the backend process account and SYSTEM. Do not copy the private key to a Linux node:
-
-```powershell
-ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\fleet-manager-ed25519" -N ""
-$key = "$env:USERPROFILE\.ssh\fleet-manager-ed25519"
-icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)" "SYSTEM:(R)"
-```
-
-Set the corresponding `FLEET_SSH_NODES` entry to that absolute private-key path in the backend's local environment. If the backend runs as a different Windows account, grant that account read access instead. Copy only the matching `.pub` file to its node.
-
-On each Ubuntu node, create the locked, unprivileged account, install the wrapper, and add the public key with a forced command. Run these commands from a trusted administrator session; substitute the copied public key file path if it differs:
-
-```sh
-sudo useradd --create-home --shell /bin/sh fleetdiag
-sudo passwd --lock fleetdiag
-sudo install -o root -g root -m 0755 scripts/fleet-command-wrapper.sh /usr/local/sbin/fleet-command-wrapper
-sudo install -d -o fleetdiag -g fleetdiag -m 0700 /home/fleetdiag/.ssh
-sudo sh -c 'printf "%s\n" "restrict,command=\"/usr/local/sbin/fleet-command-wrapper\" $(cat /path/to/fleet-manager-ed25519.pub)" >> /home/fleetdiag/.ssh/authorized_keys'
-sudo chown fleetdiag:fleetdiag /home/fleetdiag/.ssh/authorized_keys
-sudo chmod 0600 /home/fleetdiag/.ssh/authorized_keys
-```
-
-The account must not be in `sudo` or have passwordless sudo rules. Before trusting a host, read its Ed25519 fingerprint from the Ubuntu console with `sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. Obtain the host public key from Windows with `ssh-keyscan -t ed25519 <node-address>`, calculate that key's fingerprint with `ssh-keygen -lf` on a saved public-key file, compare the fingerprints, and only then append the matching scan result to the backend account's `known_hosts`. `ssh-keyscan` alone does not authenticate a host. The API targets each node's registered IP address, so that address must be reachable from the Windows backend and correspond to the pinned host key.
-
-The Node Exporter diagnostic uses Ubuntu's `node_exporter.service` unit. The command output is returned only to the authenticated operator and is not stored in the audit table.
-
-### Automatic Prometheus discovery refresh
-
-Set `PROMETHEUS_DISCOVERY_FILE` to a dedicated JSON file in a directory shared with the Prometheus host, for example `C:\path\to\prometheus-file-sd\fleet-manager-nodes.json`. Set `PROMETHEUS_DISCOVERY_REFRESH_SECONDS` to a positive integer; it defaults to 15. A blank output path disables backend publishing. The backend reads registered nodes from PostgreSQL at startup and refreshes on the configured interval. Nodes without both exporter fields are omitted; heartbeat status is not used to filter targets. Refreshes use a same-directory temporary file and atomic rename to update the explicitly configured output.
-
-Configure the active Prometheus `file_sd_configs` to read the same file through the Prometheus host's mount path. For WSL, the corresponding path might be `/mnt/<drive>/path/to/prometheus-file-sd/fleet-manager-nodes.json`; replace `<drive>` and the remaining directories with the actual shared location. Prometheus discovers JSON changes on its file-SD refresh interval without a process restart or reload. When changing the active Prometheus YAML itself, back it up, validate with `promtool check config`, then reload or restart Prometheus once. Subsequent node registrations and trusted exporter endpoint provisioning flow into the target file on the next backend refresh. Provisioning an exporter endpoint remains a trusted local database operation; public registration cannot set it.
-
-### Prometheus target provisioning (Phase 4A/4B)
-
-Exporter endpoints are configured locally by an operator; public node
-registration cannot set them. On backend startup, the idempotent migration
-`database/migrations/002_node_exporter_endpoints.sql` adds nullable endpoint
-columns and constraints without changing existing node rows. You can also
-apply it manually:
-
-```sh
-psql -d <database> -v ON_ERROR_STOP=1 -f database/migrations/002_node_exporter_endpoints.sql
-```
-
-Get the existing node IDs from `GET /api/nodes`, then configure each exporter
-from a trusted terminal with database access:
-
-```sh
-node scripts/provision-exporter-endpoint.js <linux-node-01-id> localhost 9100
-node scripts/provision-exporter-endpoint.js <linux-node-02-id> localhost 9101
-```
-
-Generate a dedicated discovery file at a chosen path:
-
-```sh
-node scripts/generate-prometheus-discovery.js "D:\\fleet-discovery\\fleet-manager-nodes.json"
-```
-
-The generator reads all nodes, includes configured endpoints regardless of
-online status, and omits nodes whose endpoint is unset. It refuses to replace
-an existing file unless `--overwrite` is supplied. Do not point it at the live
-WSL `nodes.json`; the protected basename is rejected. To refresh periodically,
-schedule this command in Windows Task Scheduler with `--overwrite` after the
-first successful generation. This phase only generates the file; it does not
-change Prometheus configuration, reload Prometheus, or alter Grafana.
-
-
-## Reliability and Security
-
-The design prioritizes predictable failure handling and controlled access to managed infrastructure.
-
-- Validate incoming API requests and reject malformed data.
-- Use parameterized SQL queries to prevent SQL injection.
-- Authenticate node heartbeats with per-node credentials and remote diagnostic requests with a separate operator token.
-- Verify node identity before accepting heartbeat updates.
-- Use configurable heartbeat intervals and offline thresholds.
-- Restrict SSH access to dedicated accounts and approved commands.
-- Apply execution timeouts and capture command exit status.
-- Record administrative activity for audit and troubleshooting.
-- Store credentials securely and exclude secrets from version control.
-- Avoid exposing management interfaces directly to untrusted networks.
-
-Node registration and node listing require the fleet-operator bearer token through `requireFleetOperator`, as do node details, command history, and remote diagnostics. Production deployment still needs operator identity management, rate limits, TLS, and a reviewed enrollment policy.
-
-## Testing Strategy
-
-The implementation should be validated against the following scenarios:
-
-- Successful and invalid node registration.
-- Duplicate node registration.
-- Heartbeat timestamp updates.
-- Automatic offline detection after a missed-heartbeat threshold.
-- Recovery after communication resumes.
-- Backend and database connectivity failures.
-- Accuracy of collected system metrics.
-- Unauthorized or disallowed remote command attempts.
-- Command execution failures and audit record creation.
-- End-to-end operation across the dashboard, backend, database, and monitoring stack.
-- SSH argument allowlisting, timeout handling, output caps, and operator-token rejection.
-
-## Planned Enhancements
-
-- Role-based access control
-- Operator identities and role-based authorization
-- Secure node enrollment for untrusted networks
-- Resource threshold alerts and node-down notifications
-- Centralized log collection
-- Automated provisioning and configuration
-- Docker-based local deployment
-- Improved scalability and fault recovery
-
-## Project Goals
-
-This project explores practical engineering challenges in:
-
-- Linux fleet administration
-- REST API and backend development
-- Relational data modeling
-- Heartbeat-based failure detection
-- Infrastructure monitoring and observability
-- Secure remote execution
-- Operational auditing
-- System integration and reliability testing
-
-See [the architecture](docs/architecture.md) and [the system workflow](docs/system-workflow.md) for component boundaries, operational flows, setup, and security assumptions.
+Use the [Live Demonstration Guide](docs/demo-guide.md) for the startup order, expected API and monitoring results, Grafana panel explanations, safe Node Exporter outage/recovery demonstration, SSH diagnostic, audit history, troubleshooting, and reviewer checklist.
