@@ -42,11 +42,11 @@ The timeout defaults to 30 seconds and the checker interval to 10 seconds. Offli
 1. `requireFleetOperator` checks `FLEET_ADMIN_TOKEN` with a timing-safe hash comparison.
 2. The controller validates the node ID and operation enum and resolves the node's stored IP.
 3. An audit row is created before connecting.
-4. OpenSSH is spawned with `shell: false`, batch mode, password authentication disabled, strict host-key checking, and a 5-second connection timeout.
-5. The process is terminated after 10 seconds; at most 8 KiB of standard output is returned.
+4. OpenSSH is spawned with `shell: false`, explicit `IdentityFile`, `IdentitiesOnly=yes`, batch mode, password authentication disabled, strict host-key checking, and a 5-second connection timeout.
+5. The process is terminated after 10 seconds; stdout and stderr share an 8 KiB capture limit.
 6. The audit row is updated with outcome and exit code.
 
-Approved operations: `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. They are read-only diagnostics. Extending this list requires code review and tests for the exact new operation.
+Approved operations preserve `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`, and add `disk_usage_all`, `memory_usage_mb`, and `node_exporter_status`. The Ubuntu wrapper compares `SSH_ORIGINAL_COMMAND` exactly and calls fixed absolute executable paths; it never evaluates that variable as a shell command. The SSH account is unprivileged and does not use sudo.
 
 ## Monitoring boundary
 

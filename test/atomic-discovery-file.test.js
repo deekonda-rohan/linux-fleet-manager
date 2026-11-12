@@ -53,7 +53,7 @@ test("cleans up its temporary file when publication fails", async (t) => {
   assert.deepEqual((await fs.readdir(directory)).filter((name) => name.endsWith(".lock")), []);
 });
 
-test("does not remove another publisher's lock", async (t) => {
+test("does not remove another publisher's lock during initial publication", async (t) => {
   const directory = await makeTestDirectory();
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const output = path.join(directory, "fleet-manager-nodes.json");
@@ -61,6 +61,21 @@ test("does not remove another publisher's lock", async (t) => {
   await fs.writeFile(lock, "active publisher");
   await assert.rejects(publishDiscoveryFile(output, "[]\n"), /publication is in progress/);
   assert.equal(await fs.readFile(lock, "utf8"), "active publisher");
+  assert.deepEqual(await listTemporaryFiles(directory), []);
+});
+
+test("concurrent refresh publications leave one complete JSON file and no temporary files", async (t) => {
+  const directory = await makeTestDirectory();
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const output = path.join(directory, "fleet-manager-nodes.json");
+  const contents = [JSON.stringify([{ targets: ["127.0.0.1:9100"], labels: { node_id: "1" } }]),
+    JSON.stringify([{ targets: ["127.0.0.1:9101"], labels: { node_id: "2" } }])];
+
+  await Promise.all(contents.map((content) => publishDiscoveryFile(output, content, { overwrite: true })));
+
+  const published = await fs.readFile(output, "utf8");
+  assert.doesNotThrow(() => JSON.parse(published));
+  assert.equal(contents.includes(published), true);
   assert.deepEqual(await listTemporaryFiles(directory), []);
 });
 

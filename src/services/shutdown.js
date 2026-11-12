@@ -2,6 +2,7 @@ function createShutdownHandler({
   server,
   pool,
   stopAvailabilityChecker,
+  stopPrometheusDiscovery = async () => {},
   logger = console,
   onFailure = () => { process.exitCode = 1; },
 }) {
@@ -20,6 +21,14 @@ function createShutdownHandler({
       } catch (error) {
         failed = true;
         logger.error("Failed to stop availability checker:", error.message);
+      }
+
+      try {
+        await stopPrometheusDiscovery();
+        logger.log("Prometheus discovery refresher stopped");
+      } catch (error) {
+        failed = true;
+        logger.error("Failed to stop Prometheus discovery refresher:", error.message);
       }
 
       if (server?.listening) {

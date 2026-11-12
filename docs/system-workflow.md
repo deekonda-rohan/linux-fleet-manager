@@ -21,18 +21,22 @@ The default heartbeat script interval is 10 seconds. The backend default offline
 
 Use `GET /api/nodes` with the fleet operator bearer token to find the IDs. `GET /api/nodes/:id` returns a node's full inventory and availability fields. From a trusted machine with the backend's database settings available, run `scripts/provision-exporter-endpoint.js <node-id> <host-or-ip> <port>`. Then generate a separate JSON file with `scripts/generate-prometheus-discovery.js <output-path.json>`. The first run refuses to replace an existing file; use `--overwrite` only for the dedicated file you intend to refresh.
 
-Prometheus must separately be configured to read that file. No WSL Prometheus configuration, active `nodes.json`, or Grafana dashboard is modified by these commands.
+Prometheus must be configured to read that file. For automatic updates, set `PROMETHEUS_DISCOVERY_FILE` in the backend environment to a dedicated JSON file visible to both Windows and WSL, and optionally set `PROMETHEUS_DISCOVERY_REFRESH_SECONDS` (default `15`). The backend publishes once at startup and polls PostgreSQL periodically; the refresher stops during graceful shutdown. Configure Prometheus `file_sd_configs` to read the matching WSL mount path. Its file-SD refresh interval picks up each atomic file replacement without restarting Prometheus. Offline nodes remain in discovery; Prometheus `up` reflects scrape health independently of heartbeat status. Nodes without an endpoint are omitted until a trusted operator provisions one. Existing WSL `nodes.json` and Grafana dashboards remain untouched.
 
 ## Run an approved remote diagnostic
 
-1. Install/configure OpenSSH on the backend host. Use a non-root account and ensure its key is available to the backend process.
-2. Pin each managed host key in that account's `known_hosts`; host-key checking is strict.
-3. Set `FLEET_SSH_USER` and a generated `FLEET_ADMIN_TOKEN` of at least 32 characters in the backend environment. Keep both out of source control.
+1. Install/configure OpenSSH on the backend host. Set `FLEET_SSH_NODES` to a JSON object keyed by registered node ID. Each entry sets that node's `sshUser` and absolute `sshKeyPath`; missing or invalid mappings fail closed with HTTP 503, with no global-key fallback. Keep private keys on the backend host, outside the repository, and grant access only to the backend process account and SYSTEM.
+2. Independently verify each Linux SSH host-key fingerprint, then add the matching host key to the Windows backend account's `known_hosts`; host-key checking is strict.
+3. Set a generated `FLEET_ADMIN_TOKEN` of at least 32 characters in the backend environment. Keep it out of source control.
 4. Send `POST /api/nodes/:id/commands` with the fleet admin bearer token and one operation body, for example `{"operation":"uptime"}`. The same operator token is required for registration, listing, node details, and `GET /api/nodes/commands/history`.
 
-The only operations currently accepted are `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. There is no arbitrary-command or argument interface. Inspect `remote_command_audit` for status and exit code; command output is returned to the authorized caller and is not persisted.
+The accepted operations are `uptime`, `disk_usage`, `memory_usage`, `kernel_info`, `disk_usage_all`, `memory_usage_mb`, and `node_exporter_status`. The last operation checks the Ubuntu unit `node_exporter.service`. There is no arbitrary-command or argument interface. The host wrapper performs exact command matching and executes fixed absolute executable paths. Inspect `remote_command_audit` for status and exit code; command output is returned to the authorized caller and is not persisted.
 
 Command history can be read through `GET /api/nodes/commands/history?node_id=<id>&limit=25&offset=0`. The response excludes target addresses, credentials, and command output.
+
+Create or provision a dedicated key for each node, restrict each key ACL to the backend process account and SYSTEM, and map each node ID to its key path and SSH user in `FLEET_SSH_NODES`. Copy only each matching public key to its node. On Ubuntu, use a locked unprivileged `fleetdiag` account with no sudo access, install `scripts/fleet-command-wrapper.sh` as root-owned `/usr/local/sbin/fleet-command-wrapper`, and place the public key in `~fleetdiag/.ssh/authorized_keys` with the options `restrict,command="/usr/local/sbin/fleet-command-wrapper"`. Keep the `.ssh` directory mode `0700` and `authorized_keys` mode `0600`.
+
+Read the node's Ed25519 host fingerprint independently at its console, compare it with the fingerprint of the key obtained from the backend with `ssh-keyscan`, then add that key to the backend account's `known_hosts`. The backend uses strict host-key checking and will fail closed for an untrusted or changed key. Ensure the registered node IP is reachable from Windows; WSL localhost forwarding is only suitable when the registered target is `127.0.0.1`.
 
 ## Failure and recovery checks
 

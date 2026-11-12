@@ -41,7 +41,7 @@ const fakePool = {
     }
     if (sql.includes("COUNT(*)::text AS total")) return { rows: [{ total: "3" }] };
     if (sql.includes("FROM remote_command_audit")) return { rows: [historyRecord] };
-    if (sql.includes("FROM nodes WHERE id = $1")) {
+    if (sql.includes("FROM nodes") && sql.includes("WHERE id = $1")) {
       return { rows: values[0] === "7" ? [node] : [] };
     }
     if (sql.includes("FROM nodes ORDER BY id ASC")) return { rows: [node] };
@@ -51,7 +51,7 @@ const fakePool = {
 
 const originalDbModule = require.cache[dbPath];
 const originalOperatorToken = process.env.FLEET_ADMIN_TOKEN;
-const originalSshUser = process.env.FLEET_SSH_USER;
+const originalSshNodes = process.env.FLEET_SSH_NODES;
 const fakeDbModule = new Module(dbPath);
 fakeDbModule.filename = dbPath;
 fakeDbModule.paths = Module._nodeModulePaths(path.dirname(dbPath));
@@ -62,7 +62,7 @@ delete require.cache[routerPath];
 delete require.cache[controllerPath];
 delete require.cache[remoteControllerPath];
 process.env.FLEET_ADMIN_TOKEN = token;
-delete process.env.FLEET_SSH_USER;
+delete process.env.FLEET_SSH_NODES;
 
 const app = express();
 app.use(express.json());
@@ -184,14 +184,40 @@ test("operator API protects management routes and preserves node authentication 
     assert.equal(queryCalls.length, 0);
   });
 
-  await t.test("valid operator auth reaches diagnostics while missing SSH setup remains disabled", async () => {
+  await t.test("rejects an unmapped node before creating an audit row or starting SSH", async () => {
+    queryCalls.length = 0;
     const response = await fetch(`${base}/api/nodes/7/commands`, {
       method: "POST",
       headers: { ...operatorHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ operation: "uptime" }),
     });
     assert.equal(response.status, 503);
-    assert.equal((await response.json()).message, "SSH operator user is not configured");
+    assert.equal((await response.json()).message, "SSH configuration is not available for this node");
+    assert.equal(queryCalls.some(({ sql }) => sql.includes("INSERT INTO remote_command_audit")), false);
+  });
+
+  await t.test("rejects an arbitrary diagnostic operation before SSH or database access", async () => {
+    queryCalls.length = 0;
+    const response = await fetch(`${base}/api/nodes/7/commands`, {
+      method: "POST",
+      headers: { ...operatorHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ operation: "cat /etc/shadow" }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(queryCalls.length, 0);
+  });
+
+  await t.test("rejects invalid per-node SSH configuration safely", async () => {
+    process.env.FLEET_SSH_NODES = "not-json";
+    const response = await fetch(`${base}/api/nodes/7/commands`, {
+      method: "POST",
+      headers: { ...operatorHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ operation: "uptime" }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).message, "FLEET_SSH_NODES must contain valid JSON");
+    if (originalSshNodes === undefined) delete process.env.FLEET_SSH_NODES;
+    else process.env.FLEET_SSH_NODES = originalSshNodes;
   });
 });
 
@@ -204,6 +230,6 @@ test.after(async () => {
   else delete require.cache[dbPath];
   if (originalOperatorToken === undefined) delete process.env.FLEET_ADMIN_TOKEN;
   else process.env.FLEET_ADMIN_TOKEN = originalOperatorToken;
-  if (originalSshUser === undefined) delete process.env.FLEET_SSH_USER;
-  else process.env.FLEET_SSH_USER = originalSshUser;
+  if (originalSshNodes === undefined) delete process.env.FLEET_SSH_NODES;
+  else process.env.FLEET_SSH_NODES = originalSshNodes;
 });

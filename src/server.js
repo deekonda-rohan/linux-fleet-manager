@@ -11,11 +11,14 @@ const {
 } = require("./config/availability.js");
 const { createAvailabilityChecker } = require("./services/node-availability.js");
 const { createShutdownHandler } = require("./services/shutdown.js");
+const { createPrometheusDiscoveryRefresher } = require("./services/prometheus-discovery-refresh.js");
+const { loadPrometheusDiscoveryConfig } = require("./config/prometheus-discovery.js");
 
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   try {
+    const discoveryConfig = loadPrometheusDiscoveryConfig();
     await testDatabaseConnection();
     await initializeDatabase();
 
@@ -33,13 +36,22 @@ async function startServer() {
     });
     availabilityChecker.start();
 
+    const discoveryRefresher = discoveryConfig.outputPath
+      ? createPrometheusDiscoveryRefresher({
+        pool,
+        outputPath: discoveryConfig.outputPath,
+        intervalSeconds: discoveryConfig.refreshSeconds,
+      })
+      : null;
     const shutdown = createShutdownHandler({
       server,
       pool,
       stopAvailabilityChecker: () => availabilityChecker.stop(),
+      stopPrometheusDiscovery: () => discoveryRefresher?.stop(),
     });
     process.once("SIGINT", () => { void shutdown("SIGINT"); });
     process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+    if (discoveryRefresher) void discoveryRefresher.start();
   } catch (error) {
     console.error("Failed to start Fleet Manager:", error.message);
     try {

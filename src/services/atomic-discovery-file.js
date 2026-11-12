@@ -37,13 +37,18 @@ async function publishDiscoveryFile(outputPath, content, { overwrite = false } =
 
   try {
     await fs.mkdir(directory, { recursive: true });
-    try {
-      lockHandle = await fs.open(lockPath, "wx", 0o600);
-    } catch (error) {
-      if (error.code === "EEXIST") {
-        throw new Error("Another discovery publication is in progress for this output path");
+    // Initial publication must not replace a file created concurrently. Refreshes
+    // use unique same-directory temp files and atomic rename, so they can safely
+    // recover after a process crash even if an old lock file was left behind.
+    if (!overwrite) {
+      try {
+        lockHandle = await fs.open(lockPath, "wx", 0o600);
+      } catch (error) {
+        if (error.code === "EEXIST") {
+          throw new Error("Another discovery publication is in progress for this output path");
+        }
+        throw error;
       }
-      throw error;
     }
 
     if (!overwrite) {

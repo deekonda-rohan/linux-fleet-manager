@@ -24,14 +24,17 @@ async function initializeDatabase() {
   const credentialMigrationPath = path.join(__dirname, "../../database/migrations/001_node_credentials.sql");
   const exporterMigrationPath = path.join(__dirname, "../../database/migrations/002_node_exporter_endpoints.sql");
   const commandAuditMigrationPath = path.join(__dirname, "../../database/migrations/003_remote_command_audit.sql");
+  const remoteOperationsMigrationPath = path.join(__dirname, "../../database/migrations/004_remote_diagnostic_operations.sql");
   const schema = await fs.readFile(schemaPath, "utf8");
   const credentialMigration = await fs.readFile(credentialMigrationPath, "utf8");
   const exporterMigration = await fs.readFile(exporterMigrationPath, "utf8");
   const commandAuditMigration = await fs.readFile(commandAuditMigrationPath, "utf8");
+  const remoteOperationsMigration = await fs.readFile(remoteOperationsMigrationPath, "utf8");
   await pool.query(schema);
   await pool.query(credentialMigration);
   await pool.query(exporterMigration);
   await pool.query(commandAuditMigration);
+  await pool.query(remoteOperationsMigration);
   console.log("Database schema is ready");
 }
 

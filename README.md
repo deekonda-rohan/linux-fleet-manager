@@ -26,7 +26,7 @@ The project emphasizes **reliability, observability, Linux systems engineering, 
 - **Failure Detection:** Identify stale heartbeats and transition unavailable nodes to an offline state.
 - **Infrastructure Monitoring:** Collect CPU, memory, and disk metrics using Prometheus and Node Exporter.
 - **Metrics Visualization:** Analyze infrastructure health and historical trends through Grafana.
-- **Controlled Remote Execution:** Run four fixed, read-only diagnostics over SSH after separate operator-token authentication.
+- **Controlled Remote Execution:** Run seven fixed, read-only diagnostics over SSH after separate operator-token authentication: `uptime`, `disk_usage`, `memory_usage`, `kernel_info`, `disk_usage_all`, `memory_usage_mb`, and `node_exporter_status`.
 - **Auditability:** Record operation, target, timestamps, status, and exit code without storing tokens or command output.
 
 > This is a development prototype. Live SSH and WSL monitoring integration still depend on host-specific configuration.
@@ -171,7 +171,13 @@ Startup checks the database and applies the idempotent migrations. The backend l
 
 ### Controlled remote diagnostics
 
-Set `FLEET_ADMIN_TOKEN` to a privately generated, high-entropy base64url token of at least 32 characters, and set `FLEET_SSH_USER` to the unprivileged Linux account used for SSH. OpenSSH must be installed on the backend host; that account's key must be available to the backend process, and each node host key must already be trusted. The backend never disables host-key checking or falls back to passwords.
+Set `FLEET_ADMIN_TOKEN` to a privately generated, high-entropy base64url token of at least 32 characters. Configure `FLEET_SSH_NODES` as a JSON object keyed by registered node ID; each entry must contain only `sshUser` and an absolute backend-local `sshKeyPath`. There is no global-key fallback: a missing or invalid mapping disables execution for that request. Keep keys outside the repository and restrict each key file ACL to the backend process account and SYSTEM. For example, for this AWS inventory:
+
+```dotenv
+FLEET_SSH_NODES={"5":{"sshUser":"fleetdiag","sshKeyPath":"C:\\path\\to\\node-5-key.pem"},"6":{"sshUser":"fleetdiag","sshKeyPath":"C:\\path\\to\\node-6-key.pem"}}
+```
+
+OpenSSH must be installed on the backend host, and each node host key must already be independently verified and trusted. The client explicitly sets `IdentityFile`, `IdentitiesOnly=yes`, `BatchMode=yes`, `StrictHostKeyChecking=yes`, and `PasswordAuthentication=no`.
 
 Generate a token locally when configuring the environment:
 
@@ -179,9 +185,43 @@ Generate a token locally when configuring the environment:
 node -p "require('node:crypto').randomBytes(32).toString('base64url')"
 ```
 
-Send `POST /api/nodes/:id/commands` with `Authorization: Bearer <FLEET_ADMIN_TOKEN>` and a JSON body such as `{"operation":"uptime"}`. The only accepted operations are `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. Node credentials do not authorize remote operations. A missing operator token disables this route with `503`.
+Send `POST /api/nodes/:id/commands` with `Authorization: Bearer <FLEET_ADMIN_TOKEN>` and a JSON body such as `{"operation":"uptime"}`. Existing operations are preserved: `uptime`, `disk_usage`, `memory_usage`, and `kernel_info`. Additional operations are `disk_usage_all` (`df -h`), `memory_usage_mb` (`free -m`), and `node_exporter_status` (`systemctl status node_exporter.service --no-pager`). Node credentials do not authorize remote operations. A missing operator token disables this route with `503`.
 
-The audit table stores operation metadata and result status, not command output. The synchronous API request times out after 10 seconds and captures at most 8 KiB of stdout.
+The audit table stores operation metadata and result status, not command output. The synchronous API request times out after 10 seconds and captures stdout and stderr under a combined 8 KiB limit. The host-side `scripts/fleet-command-wrapper.sh` accepts only exact approved command strings and executes fixed absolute executable paths. Install it root-owned and use an authorized-key entry with `restrict,command="/usr/local/sbin/fleet-command-wrapper"`; the wrapper rejects all other requests without evaluating them in a shell.
+
+#### SSH host setup
+
+On Windows, create a dedicated key pair for this integration and grant read access only to the backend process account and SYSTEM. Do not copy the private key to a Linux node:
+
+```powershell
+ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\fleet-manager-ed25519" -N ""
+$key = "$env:USERPROFILE\.ssh\fleet-manager-ed25519"
+icacls $key /inheritance:r /grant:r "$($env:USERNAME):(R)" "SYSTEM:(R)"
+```
+
+Set the corresponding `FLEET_SSH_NODES` entry to that absolute private-key path in the backend's local environment. If the backend runs as a different Windows account, grant that account read access instead. Copy only the matching `.pub` file to its node.
+
+On each Ubuntu node, create the locked, unprivileged account, install the wrapper, and add the public key with a forced command. Run these commands from a trusted administrator session; substitute the copied public key file path if it differs:
+
+```sh
+sudo useradd --create-home --shell /bin/sh fleetdiag
+sudo passwd --lock fleetdiag
+sudo install -o root -g root -m 0755 scripts/fleet-command-wrapper.sh /usr/local/sbin/fleet-command-wrapper
+sudo install -d -o fleetdiag -g fleetdiag -m 0700 /home/fleetdiag/.ssh
+sudo sh -c 'printf "%s\n" "restrict,command=\"/usr/local/sbin/fleet-command-wrapper\" $(cat /path/to/fleet-manager-ed25519.pub)" >> /home/fleetdiag/.ssh/authorized_keys'
+sudo chown fleetdiag:fleetdiag /home/fleetdiag/.ssh/authorized_keys
+sudo chmod 0600 /home/fleetdiag/.ssh/authorized_keys
+```
+
+The account must not be in `sudo` or have passwordless sudo rules. Before trusting a host, read its Ed25519 fingerprint from the Ubuntu console with `sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. Obtain the host public key from Windows with `ssh-keyscan -t ed25519 <node-address>`, calculate that key's fingerprint with `ssh-keygen -lf` on a saved public-key file, compare the fingerprints, and only then append the matching scan result to the backend account's `known_hosts`. `ssh-keyscan` alone does not authenticate a host. The API targets each node's registered IP address, so that address must be reachable from the Windows backend and correspond to the pinned host key.
+
+The Node Exporter diagnostic uses Ubuntu's `node_exporter.service` unit. The command output is returned only to the authenticated operator and is not stored in the audit table.
+
+### Automatic Prometheus discovery refresh
+
+Set `PROMETHEUS_DISCOVERY_FILE` to a dedicated JSON file in a directory shared with the Prometheus host, for example `C:\path\to\prometheus-file-sd\fleet-manager-nodes.json`. Set `PROMETHEUS_DISCOVERY_REFRESH_SECONDS` to a positive integer; it defaults to 15. A blank output path disables backend publishing. The backend reads registered nodes from PostgreSQL at startup and refreshes on the configured interval. Nodes without both exporter fields are omitted; heartbeat status is not used to filter targets. Refreshes use a same-directory temporary file and atomic rename to update the explicitly configured output.
+
+Configure the active Prometheus `file_sd_configs` to read the same file through the Prometheus host's mount path. For WSL, the corresponding path might be `/mnt/<drive>/path/to/prometheus-file-sd/fleet-manager-nodes.json`; replace `<drive>` and the remaining directories with the actual shared location. Prometheus discovers JSON changes on its file-SD refresh interval without a process restart or reload. When changing the active Prometheus YAML itself, back it up, validate with `promtool check config`, then reload or restart Prometheus once. Subsequent node registrations and trusted exporter endpoint provisioning flow into the target file on the next backend refresh. Provisioning an exporter endpoint remains a trusted local database operation; public registration cannot set it.
 
 ### Prometheus target provisioning (Phase 4A/4B)
 
@@ -233,7 +273,7 @@ The design prioritizes predictable failure handling and controlled access to man
 - Store credentials securely and exclude secrets from version control.
 - Avoid exposing management interfaces directly to untrusted networks.
 
-Node registration and node listing are currently unauthenticated. The remote-operation endpoint is separately protected. Production deployment still needs operator identity management, rate limits, TLS, and a reviewed enrollment policy.
+Node registration and node listing require the fleet-operator bearer token through `requireFleetOperator`, as do node details, command history, and remote diagnostics. Production deployment still needs operator identity management, rate limits, TLS, and a reviewed enrollment policy.
 
 ## Testing Strategy
 

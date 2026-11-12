@@ -5,7 +5,11 @@ const {
   finishCommandAudit,
   listCommandHistory,
 } = require("../repositories/remote-command.repository.js");
-const { APPROVED_OPERATIONS, runApprovedRemoteOperation } = require("../services/remote-operations.js");
+const {
+  APPROVED_OPERATIONS,
+  runApprovedRemoteOperation,
+} = require("../services/remote-operations.js");
+const { FLEET_SSH_TIMEOUT_MS, getNodeSshConfig } = require("../config/ssh.js");
 
 const DEFAULT_HISTORY_LIMIT = 25;
 const MAX_HISTORY_LIMIT = 100;
@@ -90,14 +94,14 @@ async function runRemoteOperation(req, res) {
     });
   }
 
-  const sshUser = process.env.FLEET_SSH_USER;
-  if (typeof sshUser !== "string" || !/^[a-z_][a-z0-9_-]{0,31}$/.test(sshUser)) {
-    return res.status(503).json({ success: false, message: "SSH operator user is not configured" });
-  }
-
   try {
     const node = await findCommandTarget(pool, nodeId);
     if (!node) return res.status(404).json({ success: false, message: "Node not found" });
+
+    const ssh = getNodeSshConfig(node.id);
+    if (ssh.error) {
+      return res.status(503).json({ success: false, message: ssh.error });
+    }
 
     const auditId = await createCommandAudit(pool, {
       nodeId: node.id,
@@ -108,8 +112,10 @@ async function runRemoteOperation(req, res) {
 
     const result = await runApprovedRemoteOperation({
       host: node.target_host,
-      sshUser,
+      sshUser: ssh.config.sshUser,
+      sshKeyPath: ssh.config.sshKeyPath,
       operation: body.operation,
+      timeoutMs: FLEET_SSH_TIMEOUT_MS,
     });
 
     try {
@@ -136,6 +142,7 @@ async function runRemoteOperation(req, res) {
         code: result.errorCode,
         exit_code: result.exitCode,
         output: result.output,
+        stderr: result.stderr,
       });
     }
 
@@ -146,6 +153,7 @@ async function runRemoteOperation(req, res) {
       operation: body.operation,
       status: result.status,
       output: result.output,
+      stderr: result.stderr,
     });
   } catch (error) {
     console.error("Remote operation request failed:", error.message);

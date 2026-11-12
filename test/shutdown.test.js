@@ -17,6 +17,7 @@ test("shutdown is idempotent and closes checker, HTTP server, and pool once", as
     server,
     pool,
     async stopAvailabilityChecker() { order.push("checker"); },
+    async stopPrometheusDiscovery() { order.push("discovery"); },
     logger: { log() {}, error() {} },
   });
 
@@ -24,7 +25,7 @@ test("shutdown is idempotent and closes checker, HTTP server, and pool once", as
   const second = shutdown("SIGINT");
   assert.equal(first, second);
   await Promise.all([first, second]);
-  assert.deepEqual(order, ["checker", "server", "pool"]);
+  assert.deepEqual(order, ["checker", "discovery", "server", "pool"]);
 });
 
 test("shutdown still closes the pool and reports failure if server close fails", async () => {
