@@ -24,7 +24,11 @@ function validateOutputPath(outputPath) {
   return path.resolve(outputPath);
 }
 
-async function publishDiscoveryFile(outputPath, content, { overwrite = false } = {}) {
+async function publishDiscoveryFile(
+  outputPath,
+  content,
+  { overwrite = false } = {},
+) {
   const targetPath = validateOutputPath(outputPath);
   const directory = path.dirname(targetPath);
   const temporaryPath = path.join(
@@ -45,7 +49,9 @@ async function publishDiscoveryFile(outputPath, content, { overwrite = false } =
         lockHandle = await fs.open(lockPath, "wx", 0o600);
       } catch (error) {
         if (error.code === "EEXIST") {
-          throw new Error("Another discovery publication is in progress for this output path");
+          throw new Error(
+            "Another discovery publication is in progress for this output path",
+          );
         }
         throw error;
       }
@@ -54,7 +60,9 @@ async function publishDiscoveryFile(outputPath, content, { overwrite = false } =
     if (!overwrite) {
       try {
         await fs.access(targetPath);
-        const error = new Error("Discovery output already exists; pass --overwrite to replace it");
+        const error = new Error(
+          "Discovery output already exists; pass --overwrite to replace it",
+        );
         error.code = "EEXIST";
         throw error;
       } catch (error) {

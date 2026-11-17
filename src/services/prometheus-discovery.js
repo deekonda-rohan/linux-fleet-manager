@@ -1,5 +1,8 @@
 const { isIP } = require("node:net");
-const { validateExporterAddress, validateExporterPort } = require("./exporter-endpoint.js");
+const {
+  validateExporterAddress,
+  validateExporterPort,
+} = require("./exporter-endpoint.js");
 
 function formatPrometheusTarget(addressInput, portInput) {
   const address = validateExporterAddress(addressInput);
@@ -19,22 +22,31 @@ function buildPrometheusTargetGroups(nodes) {
 
   const groups = [];
   for (const node of nodes) {
-    const addressIsNull = node.exporter_address === null || node.exporter_address === undefined;
-    const portIsNull = node.exporter_port === null || node.exporter_port === undefined;
+    const addressIsNull =
+      node.exporter_address === null || node.exporter_address === undefined;
+    const portIsNull =
+      node.exporter_port === null || node.exporter_port === undefined;
     if (addressIsNull && portIsNull) continue;
     if (addressIsNull !== portIsNull) {
-      throw new Error(`Node ${node.node_id} has an incomplete exporter endpoint`);
+      throw new Error(
+        `Node ${node.node_id} has an incomplete exporter endpoint`,
+      );
     }
     const nodeId = String(node.node_id ?? "");
     if (!/^[1-9]\d*$/.test(nodeId) || BigInt(nodeId) > 9223372036854775807n) {
       throw new Error("A configured exporter endpoint has an invalid node ID");
     }
-    if (typeof node.node_name !== "string" || node.node_name.trim().length === 0) {
+    if (
+      typeof node.node_name !== "string" ||
+      node.node_name.trim().length === 0
+    ) {
       throw new Error(`Node ${node.node_id} has an invalid name`);
     }
 
     groups.push({
-      targets: [formatPrometheusTarget(node.exporter_address, node.exporter_port)],
+      targets: [
+        formatPrometheusTarget(node.exporter_address, node.exporter_port),
+      ],
       labels: {
         node_id: nodeId,
         node_name: node.node_name,

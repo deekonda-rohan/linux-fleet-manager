@@ -15,14 +15,21 @@ const HOSTNAME_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 const SSH_USER_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
 
 function isValidSshHost(host) {
-  if (typeof host !== "string" || host.length === 0 || host.length > 253) return false;
+  if (typeof host !== "string" || host.length === 0 || host.length > 253)
+    return false;
   if (isIP(host) !== 0) return true;
-  const labels = host.endsWith(".") ? host.slice(0, -1).split(".") : host.split(".");
+  const labels = host.endsWith(".")
+    ? host.slice(0, -1).split(".")
+    : host.split(".");
   return labels.every((label) => HOSTNAME_LABEL.test(label));
 }
 
 function isValidSshKeyPath(keyPath) {
-  if (typeof keyPath !== "string" || keyPath.trim() === "" || keyPath.includes("\0")) {
+  if (
+    typeof keyPath !== "string" ||
+    keyPath.trim() === "" ||
+    keyPath.includes("\0")
+  ) {
     return false;
   }
   const pathApi = process.platform === "win32" ? path.win32 : path;
@@ -44,13 +51,20 @@ function buildSshArguments({ host, sshUser, sshKeyPath, operation }) {
   }
 
   return [
-    "-o", `IdentityFile=${sshKeyPath}`,
-    "-o", "IdentitiesOnly=yes",
-    "-o", "BatchMode=yes",
-    "-o", "StrictHostKeyChecking=yes",
-    "-o", "PasswordAuthentication=no",
-    "-o", "ConnectTimeout=5",
-    "-l", sshUser,
+    "-o",
+    `IdentityFile=${sshKeyPath}`,
+    "-o",
+    "IdentitiesOnly=yes",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "StrictHostKeyChecking=yes",
+    "-o",
+    "PasswordAuthentication=no",
+    "-o",
+    "ConnectTimeout=5",
+    "-l",
+    sshUser,
     host,
     APPROVED_OPERATIONS[operation],
   ];
@@ -91,14 +105,20 @@ function runApprovedRemoteOperation({
       });
     } catch {
       finish({
-        status: "failed", exitCode: null, errorCode: "ssh_unavailable", output: "", stderr: "",
+        status: "failed",
+        exitCode: null,
+        errorCode: "ssh_unavailable",
+        output: "",
+        stderr: "",
       });
       return;
     }
 
     timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
     }, timeoutMs);
 
     function captureChunk(stream, chunk) {
@@ -110,7 +130,9 @@ function runApprovedRemoteOperation({
         else stderr = Buffer.concat([stderr, captured]);
         capturedBytes += captured.length;
         outputExceeded = true;
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         return;
       }
       if (stream === "stdout") stdout = Buffer.concat([stdout, next]);
@@ -132,24 +154,36 @@ function runApprovedRemoteOperation({
     child.once("close", (code) => {
       if (timedOut) {
         finish({
-          status: "timed_out", exitCode: code, errorCode: "timeout",
-          output: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
+          status: "timed_out",
+          exitCode: code,
+          errorCode: "timeout",
+          output: stdout.toString("utf8"),
+          stderr: stderr.toString("utf8"),
         });
       } else if (outputExceeded) {
         finish({
-          status: "failed", exitCode: code, errorCode: "output_limit",
-          output: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
+          status: "failed",
+          exitCode: code,
+          errorCode: "output_limit",
+          output: stdout.toString("utf8"),
+          stderr: stderr.toString("utf8"),
         });
       } else if (code === 0) {
         finish({
-          status: "succeeded", exitCode: 0, errorCode: null,
-          output: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
+          status: "succeeded",
+          exitCode: 0,
+          errorCode: null,
+          output: stdout.toString("utf8"),
+          stderr: stderr.toString("utf8"),
         });
       } else {
         finish({
-          status: "failed", exitCode: code,
-          errorCode: code === 255 ? "ssh_connection_failed" : "remote_exit_nonzero",
-          output: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
+          status: "failed",
+          exitCode: code,
+          errorCode:
+            code === 255 ? "ssh_connection_failed" : "remote_exit_nonzero",
+          output: stdout.toString("utf8"),
+          stderr: stderr.toString("utf8"),
         });
       }
     });

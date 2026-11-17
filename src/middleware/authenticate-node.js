@@ -1,5 +1,7 @@
 const { pool } = require("../config/db.js");
-const { authenticateNodeCredential } = require("../services/node-credentials.js");
+const {
+  authenticateNodeCredential,
+} = require("../services/node-credentials.js");
 
 const AUTH_ERROR_MESSAGES = {
   credentials_required: "A bearer credential is required",
@@ -10,7 +12,9 @@ const AUTH_ERROR_MESSAGES = {
 async function authenticateNode(req, res, next) {
   const id = req.params.id;
   if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9223372036854775807n) {
-    return res.status(400).json({ success: false, message: "A valid node id is required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "A valid node id is required" });
   }
 
   try {
@@ -33,7 +37,9 @@ async function authenticateNode(req, res, next) {
     return next();
   } catch (error) {
     console.error("Node authentication failed:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to authenticate node" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to authenticate node" });
   }
 }
 

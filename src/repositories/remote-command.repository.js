@@ -8,7 +8,10 @@ async function findCommandTarget(pool, nodeId) {
   return result.rows[0] ?? null;
 }
 
-async function createCommandAudit(pool, { nodeId, nodeName, targetHost, operation }) {
+async function createCommandAudit(
+  pool,
+  { nodeId, nodeName, targetHost, operation },
+) {
   const result = await pool.query(
     `INSERT INTO remote_command_audit
        (node_id, node_name, target_host, operation, status)
@@ -19,7 +22,10 @@ async function createCommandAudit(pool, { nodeId, nodeName, targetHost, operatio
   return result.rows[0].id;
 }
 
-async function finishCommandAudit(pool, { auditId, status, exitCode, errorCode }) {
+async function finishCommandAudit(
+  pool,
+  { auditId, status, exitCode, errorCode },
+) {
   await pool.query(
     `UPDATE remote_command_audit
      SET status = $1, completed_at = NOW(), exit_code = $2, error_code = $3
@@ -36,7 +42,8 @@ async function listCommandHistory(pool, { nodeId, limit, offset }) {
     countValues,
   );
 
-  const values = nodeId === undefined ? [limit, offset] : [nodeId, limit, offset];
+  const values =
+    nodeId === undefined ? [limit, offset] : [nodeId, limit, offset];
   const limitPosition = values.length - 1;
   const offsetPosition = values.length;
   const result = await pool.query(

@@ -4,7 +4,9 @@ function createShutdownHandler({
   stopAvailabilityChecker,
   stopPrometheusDiscovery = async () => {},
   logger = console,
-  onFailure = () => { process.exitCode = 1; },
+  onFailure = () => {
+    process.exitCode = 1;
+  },
 }) {
   let shutdownPromise;
 
@@ -28,13 +30,16 @@ function createShutdownHandler({
         logger.log("Prometheus discovery refresher stopped");
       } catch (error) {
         failed = true;
-        logger.error("Failed to stop Prometheus discovery refresher:", error.message);
+        logger.error(
+          "Failed to stop Prometheus discovery refresher:",
+          error.message,
+        );
       }
 
       if (server?.listening) {
         try {
           await new Promise((resolve, reject) => {
-            server.close((error) => error ? reject(error) : resolve());
+            server.close((error) => (error ? reject(error) : resolve()));
           });
           logger.log("HTTP server closed");
         } catch (error) {

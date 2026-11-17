@@ -38,7 +38,9 @@ async function authenticateNodeCredential({ nodeId, authorization, pool }) {
 
   const actualHash = hashNodeCredential(parsed.credential);
   const expectedHash = Buffer.from(record.token_hash);
-  const matches = actualHash.length === expectedHash.length && timingSafeEqual(actualHash, expectedHash);
+  const matches =
+    actualHash.length === expectedHash.length &&
+    timingSafeEqual(actualHash, expectedHash);
 
   if (!matches) {
     return { authenticated: false, code: "invalid_credentials" };

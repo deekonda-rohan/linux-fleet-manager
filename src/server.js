@@ -9,10 +9,16 @@ const {
   HEARTBEAT_TIMEOUT_SECONDS,
   OFFLINE_CHECK_INTERVAL_SECONDS,
 } = require("./config/availability.js");
-const { createAvailabilityChecker } = require("./services/node-availability.js");
+const {
+  createAvailabilityChecker,
+} = require("./services/node-availability.js");
 const { createShutdownHandler } = require("./services/shutdown.js");
-const { createPrometheusDiscoveryRefresher } = require("./services/prometheus-discovery-refresh.js");
-const { loadPrometheusDiscoveryConfig } = require("./config/prometheus-discovery.js");
+const {
+  createPrometheusDiscoveryRefresher,
+} = require("./services/prometheus-discovery-refresh.js");
+const {
+  loadPrometheusDiscoveryConfig,
+} = require("./config/prometheus-discovery.js");
 
 const PORT = process.env.PORT || 3000;
 
@@ -38,10 +44,10 @@ async function startServer() {
 
     const discoveryRefresher = discoveryConfig.outputPath
       ? createPrometheusDiscoveryRefresher({
-        pool,
-        outputPath: discoveryConfig.outputPath,
-        intervalSeconds: discoveryConfig.refreshSeconds,
-      })
+          pool,
+          outputPath: discoveryConfig.outputPath,
+          intervalSeconds: discoveryConfig.refreshSeconds,
+        })
       : null;
     const shutdown = createShutdownHandler({
       server,
@@ -49,15 +55,22 @@ async function startServer() {
       stopAvailabilityChecker: () => availabilityChecker.stop(),
       stopPrometheusDiscovery: () => discoveryRefresher?.stop(),
     });
-    process.once("SIGINT", () => { void shutdown("SIGINT"); });
-    process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+    process.once("SIGINT", () => {
+      void shutdown("SIGINT");
+    });
+    process.once("SIGTERM", () => {
+      void shutdown("SIGTERM");
+    });
     if (discoveryRefresher) void discoveryRefresher.start();
   } catch (error) {
     console.error("Failed to start Fleet Manager:", error.message);
     try {
       await pool.end();
     } catch (closeError) {
-      console.error("Failed to close PostgreSQL pool after startup error:", closeError.message);
+      console.error(
+        "Failed to close PostgreSQL pool after startup error:",
+        closeError.message,
+      );
     }
     process.exitCode = 1;
   }

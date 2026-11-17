@@ -1,4 +1,9 @@
-async function setNodeExporterEndpoint(pool, nodeId, exporterAddress, exporterPort) {
+async function setNodeExporterEndpoint(
+  pool,
+  nodeId,
+  exporterAddress,
+  exporterPort,
+) {
   const result = await pool.query(
     `UPDATE nodes
      SET exporter_address = $1, exporter_port = $2

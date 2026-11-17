@@ -1,5 +1,7 @@
 const { isIP } = require("node:net");
-const { setNodeExporterEndpoint } = require("../repositories/node-exporter.repository.js");
+const {
+  setNodeExporterEndpoint,
+} = require("../repositories/node-exporter.repository.js");
 
 const HOSTNAME_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 
@@ -17,9 +19,13 @@ function validateExporterAddress(input) {
     return { value: address };
   }
 
-  const labels = address.endsWith(".") ? address.slice(0, -1).split(".") : address.split(".");
+  const labels = address.endsWith(".")
+    ? address.slice(0, -1).split(".")
+    : address.split(".");
   if (labels.some((label) => !HOSTNAME_LABEL.test(label))) {
-    return { error: "Exporter address must be a valid IPv4, IPv6, or DNS hostname" };
+    return {
+      error: "Exporter address must be a valid IPv4, IPv6, or DNS hostname",
+    };
   }
 
   return { value: address };
@@ -39,7 +45,12 @@ function validateExporterPort(input) {
   return { value: port };
 }
 
-async function provisionExporterEndpoint(pool, nodeIdInput, addressInput, portInput) {
+async function provisionExporterEndpoint(
+  pool,
+  nodeIdInput,
+  addressInput,
+  portInput,
+) {
   if (typeof nodeIdInput !== "string" || !/^[1-9]\d*$/.test(nodeIdInput)) {
     return { error: "Node ID must be a positive integer" };
   }
@@ -59,7 +70,12 @@ async function provisionExporterEndpoint(pool, nodeIdInput, addressInput, portIn
   const port = validateExporterPort(portInput);
   if (port.error) return port;
 
-  const node = await setNodeExporterEndpoint(pool, nodeIdInput, address.value, port.value);
+  const node = await setNodeExporterEndpoint(
+    pool,
+    nodeIdInput,
+    address.value,
+    port.value,
+  );
   if (!node) return { error: "Node not found", notFound: true };
   return { value: node };
 }

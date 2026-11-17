@@ -5,7 +5,10 @@ const {
   hashNodeCredential,
 } = require("../services/node-credentials.js");
 const { recordNodeHeartbeat } = require("../services/node-availability.js");
-const { listNodes, findNodeById } = require("../repositories/node.repository.js");
+const {
+  listNodes,
+  findNodeById,
+} = require("../repositories/node.repository.js");
 
 function isValidNodeId(value) {
   if (typeof value !== "string" || !/^[1-9]\d{0,18}$/.test(value)) return false;
@@ -46,7 +49,8 @@ const registerNode = async (req, res) => {
       message: "Linux node registered successfully",
       node: result.rows[0],
       credential,
-      credential_notice: "Store this credential securely; it will not be shown again.",
+      credential_notice:
+        "Store this credential securely; it will not be shown again.",
     });
   } catch (error) {
     console.error("Register node error:", error.message);
@@ -74,7 +78,8 @@ const rotateNodeCredential = async (req, res) => {
     if (result.rowCount === 0) {
       return res.status(409).json({
         success: false,
-        message: "Credential changed or revoked; authenticate again before rotating",
+        message:
+          "Credential changed or revoked; authenticate again before rotating",
       });
     }
 
@@ -82,11 +87,14 @@ const rotateNodeCredential = async (req, res) => {
       success: true,
       message: "Node credential rotated successfully",
       credential,
-      credential_notice: "Store this credential securely; it will not be shown again.",
+      credential_notice:
+        "Store this credential securely; it will not be shown again.",
     });
   } catch (error) {
     console.error("Rotate node credential error:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to rotate node credential" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to rotate node credential" });
   }
 };
 
@@ -106,10 +114,14 @@ const revokeNodeCredential = async (req, res) => {
       });
     }
 
-    return res.status(200).json({ success: true, message: "Node credential revoked successfully" });
+    return res
+      .status(200)
+      .json({ success: true, message: "Node credential revoked successfully" });
   } catch (error) {
     console.error("Revoke node credential error:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to revoke node credential" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to revoke node credential" });
   }
 };
 
@@ -134,19 +146,25 @@ const getNodes = async (_req, res) => {
 const getNodeById = async (req, res) => {
   const { id } = req.params;
   if (!isValidNodeId(id)) {
-    return res.status(400).json({ success: false, message: "A valid node id is required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "A valid node id is required" });
   }
 
   try {
     const node = await findNodeById(pool, id);
     if (!node) {
-      return res.status(404).json({ success: false, message: "Node not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Node not found" });
     }
 
     return res.status(200).json({ success: true, node });
   } catch (error) {
     console.error("Get node error:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to get node" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to get node" });
   }
 };
 

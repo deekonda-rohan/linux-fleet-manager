@@ -8,8 +8,13 @@ const {
   revokeNodeCredential,
 } = require("../controllers/node.controller.js");
 const { authenticateNode } = require("../middleware/authenticate-node.js");
-const { requireFleetOperator } = require("../middleware/require-fleet-operator.js");
-const { runRemoteOperation, getCommandHistory } = require("../controllers/remote-command.controller.js");
+const {
+  requireFleetOperator,
+} = require("../middleware/require-fleet-operator.js");
+const {
+  runRemoteOperation,
+  getCommandHistory,
+} = require("../controllers/remote-command.controller.js");
 
 const router = express.Router();
 
